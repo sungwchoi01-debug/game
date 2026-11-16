@@ -1,0 +1,843 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>네온 터널</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  body { font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; color: #fff; user-select: none; -webkit-user-select: none; touch-action: none; }
+  canvas { display: block; position: fixed; inset: 0; touch-action: none; }
+  #menu { position: fixed; top: 12px; left: 12px; z-index: 5; color: #cfe; text-decoration: none; font-size: 14px; font-weight: 700; padding: 6px 12px; border-radius: 999px; background: rgba(20,30,70,.7); border: 1px solid rgba(120,170,255,.35); }
+  #menu:hover { background: rgba(40,70,150,.8); }
+  #hud { position: fixed; inset: 0; z-index: 3; pointer-events: none; text-shadow: 0 0 8px rgba(0,240,255,.8); }
+  #hudC { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); text-align: center; }
+  #sc { font-size: 26px; font-weight: 800; letter-spacing: 1px; font-variant-numeric: tabular-nums; }
+  #cb { font-size: 14px; font-weight: 700; color: #ffe066; min-height: 18px; text-shadow: 0 0 8px rgba(255,200,0,.8); }
+  #hudR { position: absolute; top: 12px; right: 12px; text-align: right; font-size: 13px; line-height: 1.5; }
+  #hp { font-size: 18px; color: #ff4d8d; text-shadow: 0 0 8px rgba(255,60,140,.9); letter-spacing: 2px; }
+  #spd { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  #stg { color: #bdf; }
+  #snd { position: absolute; bottom: 8px; right: 12px; font-size: 11px; opacity: .6; }
+  #flash { position: fixed; inset: 0; z-index: 2; pointer-events: none; background: #ff2050; opacity: 0; }
+  #pops { position: fixed; left: 0; right: 0; top: 30%; z-index: 4; pointer-events: none; text-align: center; }
+  .pop { position: absolute; left: 0; right: 0; font-weight: 900; font-size: 22px; color: #fff; text-shadow: 0 0 10px #0ff, 0 0 20px #f0f; animation: popup .9s ease-out forwards; }
+  .pop.big { font-size: 34px; color: #ffe066; text-shadow: 0 0 12px #fa0, 0 0 26px #f50; animation-duration: 1.6s; }
+  .pop.bad { color: #ff6b8b; text-shadow: 0 0 12px #f05; }
+  @keyframes popup { 0% { transform: translateY(10px) scale(.7); opacity: 0; } 15% { transform: translateY(0) scale(1.15); opacity: 1; } 70% { opacity: 1; } 100% { transform: translateY(-40px) scale(1); opacity: 0; } }
+  #ov { position: fixed; inset: 0; z-index: 4; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+  #ov .panel { pointer-events: none; text-align: center; padding: 24px 22px; max-width: 86vw; border-radius: 16px; background: rgba(4,6,24,.62); border: 1px solid rgba(0,240,255,.35); box-shadow: 0 0 30px rgba(0,240,255,.2), inset 0 0 30px rgba(255,0,200,.1); }
+  #ov h1 { margin: 0 0 6px; font-size: 40px; letter-spacing: 4px; color: #fff; text-shadow: 0 0 10px #0ff, 0 0 26px #0ff, 0 0 40px #f0f; }
+  #ov h2 { margin: 0 0 10px; font-size: 32px; color: #ff5d8d; text-shadow: 0 0 14px #f05; }
+  #ov p { margin: 6px 0; font-size: 14px; color: #cde; line-height: 1.55; }
+  #ov .hi { color: #ffe066; font-weight: 700; }
+  #ov .blink { margin-top: 14px; font-size: 17px; font-weight: 800; color: #fff; animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: .15; } }
+  #err { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 9; color: #fbb; font-size: 16px; text-align: center; padding: 20px; }
+</style>
+</head>
+<body>
+<a id="menu" href="../index.html">← 메뉴</a>
+<div id="flash"></div>
+<div id="hud">
+  <div id="hudC"><div id="sc">0</div><div id="cb"></div></div>
+  <div id="hudR"><div id="hp"></div><div><span id="spd">0</span> km/h</div><div id="stg"></div></div>
+  <div id="snd"></div>
+</div>
+<div id="pops"></div>
+<div id="ov"><div class="panel" id="panel"></div></div>
+<div id="err"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+'use strict';
+if (typeof THREE === 'undefined') {
+  var er = document.getElementById('err');
+  er.style.display = 'flex';
+  er.textContent = 'three.js를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.';
+  return;
+}
+
+// ---------- 유틸 ----------
+var TAU = Math.PI * 2;
+function rand(a, b) { return a + Math.random() * (b - a); }
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+function angDiff(a, b) { var d = (a - b + Math.PI) % TAU; if (d < 0) d += TAU; return d - Math.PI; }
+function loadHi() { try { return +localStorage.getItem('hi_tunnel') || 0; } catch (e) { return 0; } }
+function saveHi(v) { try { localStorage.setItem('hi_tunnel', v); } catch (e) {} }
+
+// ---------- 사운드 (WebAudio) ----------
+var actx = null, muted = false;
+function sfx(type) {
+  if (muted) return;
+  try {
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+    var t = actx.currentTime;
+    var o = actx.createOscillator(), g = actx.createGain();
+    o.connect(g); g.connect(actx.destination);
+    var cfg = {
+      shot:  ['square',   1200, 600, 0.012, 0.04],
+      hit:   ['triangle', 420, 160, 0.06, 0.07],
+      boom:  ['sawtooth', 180,  30, 0.16, 0.35],
+      hurt:  ['sawtooth', 240,  50, 0.22, 0.5],
+      near:  ['sine',     700, 1600, 0.12, 0.18],
+      pass:  ['sine',     500, 800, 0.04, 0.08],
+      stage: ['square',   300, 1200, 0.08, 0.5],
+      over:  ['triangle', 400,  40, 0.2, 1.0],
+      start: ['sine',     300, 900, 0.1, 0.3]
+    }[type];
+    if (!cfg) return;
+    o.type = cfg[0];
+    o.frequency.setValueAtTime(cfg[1], t);
+    o.frequency.exponentialRampToValueAtTime(cfg[2], t + cfg[4]);
+    g.gain.setValueAtTime(cfg[3], t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + cfg[4]);
+    o.start(t); o.stop(t + cfg[4]);
+  } catch (e) {}
+}
+
+// ---------- 렌더러 / 씬 ----------
+var renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+} catch (e) {
+  var er2 = document.getElementById('err');
+  er2.style.display = 'flex';
+  er2.textContent = 'WebGL을 사용할 수 없습니다.';
+  return;
+}
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.setClearColor(0x000000, 1);
+document.body.insertBefore(renderer.domElement, document.body.firstChild);
+
+var scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x000000, 40, 240);
+var camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 400);
+function baseFov() { return camera.aspect < 1 ? 82 : 68; }
+function onResize() {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', onResize);
+
+// ---------- 테마 ----------
+var THEMES = [
+  [0x00e5ff, 0xff2bd6],
+  [0xff8a00, 0xa040ff],
+  [0x39ff14, 0x2b7bff],
+  [0xff2050, 0xffe600],
+  [0xffffff, 0x00ffb0]
+];
+var targetA = new THREE.Color(THEMES[0][0]), targetB = new THREE.Color(THEMES[0][1]);
+var matsA = [], matsB = [];
+function addMat(m, which) { (which === 'A' ? matsA : matsB).push(m); m.color.copy(which === 'A' ? targetA : targetB); return m; }
+function basicMat(which, opacity, side) {
+  return addMat(new THREE.MeshBasicMaterial({ transparent: true, opacity: opacity, blending: THREE.AdditiveBlending, depthWrite: false, side: side || THREE.FrontSide }), which);
+}
+function lineMat(which, opacity) {
+  return addMat(new THREE.LineBasicMaterial({ transparent: true, opacity: opacity, blending: THREE.AdditiveBlending, depthWrite: false }), which);
+}
+function setTheme(i) {
+  var t = THEMES[i % THEMES.length];
+  targetA.setHex(t[0]); targetB.setHex(t[1]);
+}
+var fogTarget = new THREE.Color();
+function lerpTheme(k) {
+  var i;
+  for (i = 0; i < matsA.length; i++) matsA[i].color.lerp(targetA, k);
+  for (i = 0; i < matsB.length; i++) matsB[i].color.lerp(targetB, k);
+  fogTarget.copy(targetA).multiplyScalar(0.04);
+  scene.fog.color.lerp(fogTarget, k);
+  renderer.setClearColor(scene.fog.color, 1);
+}
+
+// ---------- 상수 ----------
+var R = 10;            // 터널 반지름
+var SHIP_R = 8.4;      // 배가 도는 반지름
+var SHIP_HA = 0.09;    // 배의 각도 반폭
+var NEAR = 0.15;       // 니어미스 판정 여유
+var SPAWN_Z = -230;
+var SEG_L = 7, SEG_N = 36;
+
+// 곡률 (시각 효과만, 판정은 터널 좌표계)
+var curveX = 0, curveY = 0;
+function bx(z) { var d = z < 0 ? -z : 0; return curveX * d * d; }
+function by(z) { var d = z < 0 ? -z : 0; return curveY * d * d; }
+function placeAt(obj3d, ang, r, z) {
+  obj3d.position.set(Math.sin(ang) * r + bx(z), -Math.cos(ang) * r + by(z), z);
+}
+
+// ---------- 터널 세그먼트 (재활용) ----------
+var segGeo = (function () {
+  var pts = [], i, a, a2, LONG = 16, CIRC = 48;
+  for (i = 0; i < LONG; i++) {
+    a = i / LONG * TAU;
+    pts.push(Math.sin(a) * R, -Math.cos(a) * R, 0, Math.sin(a) * R, -Math.cos(a) * R, -SEG_L);
+  }
+  for (i = 0; i < CIRC; i++) {
+    a = i / CIRC * TAU; a2 = (i + 1) / CIRC * TAU;
+    pts.push(Math.sin(a) * R, -Math.cos(a) * R, 0, Math.sin(a2) * R, -Math.cos(a2) * R, 0);
+  }
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+  return g;
+})();
+var segMat = lineMat('A', 0.5);
+var torusGeo = new THREE.TorusGeometry(R - 0.05, 0.14, 6, 64);
+var torusMat = basicMat('B', 0.95);
+var segs = [];
+for (var si = 0; si < SEG_N; si++) {
+  var sg = new THREE.Group();
+  sg.add(new THREE.LineSegments(segGeo, segMat));
+  if (si % 4 === 0) sg.add(new THREE.Mesh(torusGeo, torusMat));
+  sg.userData.z = -si * SEG_L + 8;
+  scene.add(sg);
+  segs.push(sg);
+}
+function updateTunnel(spd) {
+  for (var i = 0; i < segs.length; i++) {
+    var s = segs[i];
+    s.userData.z += spd;
+    if (s.userData.z > 14) s.userData.z -= SEG_N * SEG_L;
+    var z = s.userData.z;
+    s.position.set(bx(z), by(z), z);
+  }
+}
+
+// ---------- 배 ----------
+var ship = new THREE.Group();
+(function () {
+  var body = new THREE.ConeGeometry(0.7, 2.8, 4);
+  body.rotateX(-Math.PI / 2);
+  body.rotateZ(Math.PI / 4);
+  body.scale(1, 0.45, 1);
+  var bodyMesh = new THREE.Mesh(body, basicMat('A', 0.75));
+  ship.add(bodyMesh);
+  ship.add(new THREE.LineSegments(new THREE.EdgesGeometry(body), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false })));
+  var wing = new THREE.BoxGeometry(2.8, 0.1, 0.9);
+  var wingMesh = new THREE.Mesh(wing, basicMat('B', 0.7));
+  wingMesh.position.set(0, -0.05, 0.6);
+  ship.add(wingMesh);
+  var wingEdge = new THREE.LineSegments(new THREE.EdgesGeometry(wing), lineMat('B', 1));
+  wingEdge.position.copy(wingMesh.position);
+  ship.add(wingEdge);
+  var eng = new THREE.Mesh(new THREE.SphereGeometry(0.38, 10, 8), basicMat('B', 1));
+  eng.position.set(0, 0, 1.45);
+  ship.add(eng);
+  ship.userData.eng = eng;
+})();
+scene.add(ship);
+
+// ---------- 오브젝트 풀 ----------
+var GH_W = 0.62, GH_N = 0.46;
+var BAR_HA = 0.09, LASER_HA = 0.05, SLOT_HA = 0.235, WALL_N = 10;
+var pools = {};
+function buildRing(gh) {
+  var g = new THREE.Group();
+  var geo = new THREE.RingGeometry(4.2, R, 48, 1, -Math.PI / 2 + gh, TAU - 2 * gh);
+  g.add(new THREE.Mesh(geo, basicMat('B', 0.28, THREE.DoubleSide)));
+  g.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), lineMat('B', 1)));
+  // 갭 표시 (안쪽 링 테두리)
+  return g;
+}
+function buildBar(k) {
+  var g = new THREE.Group();
+  var geo = new THREE.BoxGeometry(2 * R, 1.1, 1.1);
+  var edges = new THREE.EdgesGeometry(geo);
+  var fill = basicMat('B', 0.5), ln = lineMat('A', 1);
+  for (var i = 0; i < k; i++) {
+    var m = new THREE.Mesh(geo, fill); m.rotation.z = i * Math.PI / k; g.add(m);
+    var l = new THREE.LineSegments(edges, ln); l.rotation.z = m.rotation.z; g.add(l);
+  }
+  var hub = new THREE.Mesh(new THREE.OctahedronGeometry(1.6), basicMat('A', 0.8));
+  g.add(hub);
+  return g;
+}
+function buildLaser(k) {
+  var g = new THREE.Group();
+  var core = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false });
+  var halo = basicMat('B', 0.3);
+  halo = halo.clone(); matsB.push(halo);
+  var coreGeo = new THREE.BoxGeometry(2 * R, 0.2, 0.2), haloGeo = new THREE.BoxGeometry(2 * R, 0.9, 0.9);
+  var emGeo = new THREE.BoxGeometry(1.2, 1.2, 1.2), emMat = basicMat('A', 0.9);
+  for (var i = 0; i < k; i++) {
+    var a = i * Math.PI / k;
+    var c = new THREE.Mesh(coreGeo, core); c.rotation.z = a; g.add(c);
+    var h = new THREE.Mesh(haloGeo, halo); h.rotation.z = a; g.add(h);
+    for (var s = -1; s <= 1; s += 2) {
+      var e = new THREE.Mesh(emGeo, emMat);
+      e.position.set(Math.cos(a) * R * s * 0.97, Math.sin(a) * R * s * 0.97, 0);
+      e.rotation.z = a;
+      g.add(e);
+    }
+  }
+  g.userData.core = core; g.userData.halo = halo;
+  return g;
+}
+var slotGeo = new THREE.BoxGeometry(4, 3, 2), slotEdges = new THREE.EdgesGeometry(slotGeo);
+var slotFill = basicMat('A', 0.4), slotLine = lineMat('A', 1);
+function buildWall() {
+  var g = new THREE.Group();
+  g.userData.slots = [];
+  for (var i = 0; i < WALL_N; i++) {
+    var s = new THREE.Group();
+    s.add(new THREE.Mesh(slotGeo, slotFill));
+    s.add(new THREE.LineSegments(slotEdges, slotLine));
+    var a = i / WALL_N * TAU;
+    s.position.set(Math.sin(a) * (R - 1.5), -Math.cos(a) * (R - 1.5), 0);
+    s.rotation.z = a;
+    g.add(s);
+    g.userData.slots.push(s);
+  }
+  return g;
+}
+var droneGeo = new THREE.OctahedronGeometry(1.1), droneEdges = new THREE.EdgesGeometry(droneGeo);
+var droneFill = basicMat('B', 0.55), droneLine = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
+var droneRingGeo = new THREE.TorusGeometry(1.7, 0.08, 4, 24), droneRingMat = basicMat('A', 0.9);
+function buildDrone() {
+  var g = new THREE.Group();
+  var core = new THREE.Group();
+  core.add(new THREE.Mesh(droneGeo, droneFill));
+  core.add(new THREE.LineSegments(droneEdges, droneLine));
+  g.add(core);
+  var ring = new THREE.Mesh(droneRingGeo, droneRingMat);
+  g.add(ring);
+  g.userData.core = core; g.userData.ring = ring;
+  return g;
+}
+var builders = {
+  ringW: function () { return buildRing(GH_W); },
+  ringN: function () { return buildRing(GH_N); },
+  bar1: function () { return buildBar(1); },
+  bar2: function () { return buildBar(2); },
+  laser2: function () { return buildLaser(2); },
+  laser3: function () { return buildLaser(3); },
+  wall: buildWall,
+  drone: buildDrone
+};
+function getMesh(key) {
+  var p = pools[key] || (pools[key] = []);
+  var m = p.length ? p.pop() : null;
+  if (!m) { m = builders[key](); scene.add(m); }
+  m.visible = true;
+  return m;
+}
+function releaseMesh(key, m) { m.visible = false; m.scale.set(1, 1, 1); pools[key].push(m); }
+
+// ---------- 총알 ----------
+var bulletGeo = new THREE.BoxGeometry(0.18, 0.18, 2.6);
+var bulletMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false });
+var bullets = [];
+for (var bi = 0; bi < 40; bi++) {
+  var bm = new THREE.Mesh(bulletGeo, bulletMat); bm.visible = false; scene.add(bm);
+  bullets.push({ alive: false, ang: 0, z: 0, mesh: bm });
+}
+
+// ---------- 파티클 ----------
+var NP = 600;
+var pPos = new Float32Array(NP * 3), pCol = new Float32Array(NP * 3);
+var pV = new Float32Array(NP * 3), pBase = new Float32Array(NP * 3), pLife = new Float32Array(NP), pMax = new Float32Array(NP);
+var pGeo = new THREE.BufferGeometry();
+pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+pGeo.setAttribute('color', new THREE.BufferAttribute(pCol, 3));
+var pts = new THREE.Points(pGeo, new THREE.PointsMaterial({ size: 0.55, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true }));
+pts.frustumCulled = false;
+scene.add(pts);
+var pNext = 0;
+for (var pi = 0; pi < NP; pi++) pPos[pi * 3 + 1] = -9999;
+function burst(x, y, z, n, color, power) {
+  var c = new THREE.Color(color);
+  for (var i = 0; i < n; i++) {
+    var k = pNext; pNext = (pNext + 1) % NP;
+    pPos[k * 3] = x; pPos[k * 3 + 1] = y; pPos[k * 3 + 2] = z;
+    var th = rand(0, TAU), ph = rand(-1, 1), sp = rand(0.1, 1) * power;
+    var q = Math.sqrt(1 - ph * ph);
+    pV[k * 3] = Math.cos(th) * q * sp; pV[k * 3 + 1] = Math.sin(th) * q * sp; pV[k * 3 + 2] = ph * sp;
+    pBase[k * 3] = c.r; pBase[k * 3 + 1] = c.g; pBase[k * 3 + 2] = c.b;
+    pMax[k] = pLife[k] = rand(25, 55);
+  }
+}
+function updateParticles(spd) {
+  for (var k = 0; k < NP; k++) {
+    if (pLife[k] <= 0) continue;
+    pLife[k]--;
+    var i3 = k * 3;
+    pPos[i3] += pV[i3]; pPos[i3 + 1] += pV[i3 + 1]; pPos[i3 + 2] += pV[i3 + 2] + spd;
+    pV[i3] *= 0.95; pV[i3 + 1] *= 0.95; pV[i3 + 2] *= 0.95;
+    var f = pLife[k] / pMax[k];
+    pCol[i3] = pBase[i3] * f; pCol[i3 + 1] = pBase[i3 + 1] * f; pCol[i3 + 2] = pBase[i3 + 2] * f;
+    if (pLife[k] <= 0) { pPos[i3 + 1] = -9999; pCol[i3] = pCol[i3 + 1] = pCol[i3 + 2] = 0; }
+  }
+  pGeo.attributes.position.needsUpdate = true;
+  pGeo.attributes.color.needsUpdate = true;
+}
+
+// ---------- 속도선 (스트릭) ----------
+var NS = 70;
+var sPos = new Float32Array(NS * 6);
+var streaks = [];
+var sGeo = new THREE.BufferGeometry();
+sGeo.setAttribute('position', new THREE.BufferAttribute(sPos, 3));
+var sMat = lineMat('A', 0.7);
+var sLines = new THREE.LineSegments(sGeo, sMat);
+sLines.frustumCulled = false;
+scene.add(sLines);
+for (var ti = 0; ti < NS; ti++) streaks.push({ ang: rand(0, TAU), r: rand(3, 9.6), z: rand(-220, 10) });
+function updateStreaks(spd) {
+  var len = 2 + spd * 5;
+  for (var i = 0; i < NS; i++) {
+    var s = streaks[i];
+    s.z += spd * 2.2;
+    if (s.z > 12) { s.z = rand(-230, -150); s.ang = rand(0, TAU); s.r = rand(3, 9.6); }
+    var cx = Math.sin(s.ang) * s.r, cy = -Math.cos(s.ang) * s.r, z2 = s.z - len;
+    var o = i * 6;
+    sPos[o] = cx + bx(s.z); sPos[o + 1] = cy + by(s.z); sPos[o + 2] = s.z;
+    sPos[o + 3] = cx + bx(z2); sPos[o + 4] = cy + by(z2); sPos[o + 5] = z2;
+  }
+  sGeo.attributes.position.needsUpdate = true;
+}
+
+// ---------- HUD ----------
+var $ = function (id) { return document.getElementById(id); };
+var elSc = $('sc'), elCb = $('cb'), elHp = $('hp'), elSpd = $('spd'), elStg = $('stg'), elSnd = $('snd');
+var elFlash = $('flash'), elPops = $('pops'), elOv = $('ov'), elPanel = $('panel');
+function popup(text, cls) {
+  var d = document.createElement('div');
+  d.className = 'pop' + (cls ? ' ' + cls : '');
+  d.textContent = text;
+  d.style.top = (elPops.childElementCount % 3) * 30 + 'px';
+  elPops.appendChild(d);
+  setTimeout(function () { if (d.parentNode) d.parentNode.removeChild(d); }, cls === 'big' ? 1700 : 1000);
+}
+var hudCache = {};
+function setText(el, key, v) { if (hudCache[key] !== v) { hudCache[key] = v; el.textContent = v; } }
+function updateHud() {
+  setText(elSc, 'sc', Math.floor(score).toLocaleString());
+  setText(elCb, 'cb', combo > 0 ? 'COMBO ' + combo + '  ×' + mult() : '');
+  setText(elHp, 'hp', '♥'.repeat(Math.max(0, hp)) + '♡'.repeat(Math.max(0, 3 - hp)));
+  setText(elSpd, 'spd', String(Math.round(speed * 380)));
+  setText(elStg, 'stg', 'STAGE ' + stage + '  ·  HI ' + Math.max(hiScore, Math.floor(score)).toLocaleString());
+  setText(elSnd, 'snd', 'M: 소리 ' + (muted ? '꺼짐' : '켜짐'));
+}
+
+// ---------- 게임 상태 ----------
+var state = 'title';
+var score = 0, hiScore = loadHi(), hp = 3, combo = 0, stage = 1, t = 0, speed = 1;
+var ang = 0, angVel = 0, invuln = 0, shake = 0, flash = 0, fireTimer = 0, spawnTimer = 60, overTimer = 0;
+var obstacles = [];
+var gTime = 0;
+function mult() { return Math.min(8, 1 + Math.floor(combo / 4)); }
+
+function clearWorld() {
+  for (var i = 0; i < obstacles.length; i++) releaseMesh(obstacles[i].key, obstacles[i].mesh);
+  obstacles.length = 0;
+  for (i = 0; i < bullets.length; i++) { bullets[i].alive = false; bullets[i].mesh.visible = false; }
+}
+function startGame() {
+  clearWorld();
+  score = 0; hp = 3; combo = 0; stage = 1; t = 0; speed = 1.1;
+  ang = 0; angVel = 0; invuln = 60; shake = 0; flash = 0; fireTimer = 0; spawnTimer = 70;
+  setTheme(0);
+  state = 'play';
+  elOv.style.display = 'none';
+  ship.visible = true;
+  sfx('start');
+}
+var ACCT = '<p style="margin-top:14px;font-size:13px;color:#ffcc4d;font-weight:700">마음 보내실 곳 1111-111111111111</p>';
+function showOverlay(html) { elPanel.innerHTML = html; elOv.style.display = 'flex'; }
+function titleScreen() {
+  showOverlay('<h1>네온 터널</h1>' +
+    '<p>초고속 네온 튜브를 질주하라!</p>' +
+    '<p>← → / A D : 튜브 벽을 따라 회전<br>터치: 좌우로 드래그해서 회전<br>주포는 자동 발사 — 블록·드론 파괴</p>' +
+    '<p>링의 틈을 통과하고, 회전 바와 깜빡이는 레이저를 피하세요.<br>아슬아슬하게 피하면 니어미스 보너스!</p>' +
+    '<p>P / Esc : 일시정지 &nbsp;·&nbsp; M : 소리</p>' +
+    '<p class="hi">최고 기록 ' + hiScore.toLocaleString() + '</p>' +
+    '<div class="blink">ENTER / 탭 해서 시작</div>' + ACCT);
+}
+function gameOver() {
+  state = 'over'; overTimer = 0;
+  var fs = Math.floor(score), newHi = fs > hiScore;
+  if (newHi) { hiScore = fs; saveHi(hiScore); }
+  sfx('over');
+  burst(ship.position.x, ship.position.y, ship.position.z, 80, 0xffffff, 1.2);
+  burst(ship.position.x, ship.position.y, ship.position.z, 60, targetB.getHex(), 0.9);
+  ship.visible = false;
+  showOverlay('<h2>GAME OVER</h2>' +
+    '<p style="font-size:22px;color:#fff;font-weight:800">점수 ' + fs.toLocaleString() + '</p>' +
+    '<p>도달 스테이지 ' + stage + '</p>' +
+    '<p class="hi">' + (newHi && fs > 0 ? '★ 최고 기록! ★' : '최고 기록 ' + hiScore.toLocaleString()) + '</p>' +
+    '<div class="blink">ENTER / 탭 해서 재시작</div>' + ACCT);
+}
+function togglePause() {
+  if (state === 'play') { state = 'pause'; showOverlay('<h1 style="font-size:30px">일시정지</h1><p>P / Esc 로 계속하기</p>'); }
+  else if (state === 'pause') { state = 'play'; elOv.style.display = 'none'; }
+}
+
+// ---------- 입력 ----------
+var keys = {};
+addEventListener('keydown', function (e) {
+  keys[e.code] = true;
+  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].indexOf(e.code) >= 0) e.preventDefault();
+  if (e.code === 'Enter' || e.code === 'Space') {
+    if (state === 'title' || (state === 'over' && overTimer > 30)) startGame();
+  }
+  if (e.code === 'KeyP' || e.code === 'Escape') togglePause();
+  if (e.code === 'KeyM') { muted = !muted; }
+});
+addEventListener('keyup', function (e) { keys[e.code] = false; });
+addEventListener('blur', function () { for (var k in keys) keys[k] = false; if (state === 'play') togglePause(); });
+
+var drag = null;
+addEventListener('pointerdown', function (e) {
+  if (e.target && e.target.id === 'menu') return;
+  if (state === 'title' || (state === 'over' && overTimer > 40)) { startGame(); return; }
+  if (state === 'pause') { togglePause(); return; }
+  drag = { x: e.clientX, id: e.pointerId };
+});
+addEventListener('pointermove', function (e) {
+  if (!drag || e.pointerId !== drag.id || state !== 'play') return;
+  var dx = e.clientX - drag.x;
+  drag.x = e.clientX;
+  var d = dx / Math.max(320, innerWidth) * 4.2;
+  ang += d;
+  angVel = angVel * 0.5 + d * 0.5;
+});
+addEventListener('pointerup', function () { drag = null; });
+addEventListener('pointercancel', function () { drag = null; });
+
+// ---------- 스폰 ----------
+function addObstacle(o) { obstacles.push(o); return o; }
+function spawnPattern() {
+  var r = Math.random(), a0 = rand(0, TAU);
+  var pool = ['ring', 'ring', 'bar', 'wall'];
+  if (stage >= 2) pool.push('laser', 'drone', 'bar');
+  if (stage >= 3) pool.push('laser', 'wall', 'combo');
+  if (stage >= 4) pool.push('drone', 'combo');
+  var kind = pool[Math.floor(r * pool.length)];
+  if (kind === 'ring') {
+    var narrow = stage >= 3 && Math.random() < 0.5;
+    addObstacle({ type: 'ring', key: narrow ? 'ringN' : 'ringW', gh: narrow ? GH_N : GH_W, ang: a0,
+      rot: stage >= 2 && Math.random() < 0.5 ? rand(-1, 1) * 0.006 * Math.min(stage, 5) : 0, z: SPAWN_Z });
+  } else if (kind === 'bar') {
+    var k = stage >= 3 && Math.random() < 0.4 ? 2 : 1;
+    addObstacle({ type: 'beam', key: 'bar' + k, k: k, ha: BAR_HA, ang: a0,
+      rot: (Math.random() < 0.5 ? -1 : 1) * rand(0.012, 0.02 + stage * 0.003), z: SPAWN_Z });
+  } else if (kind === 'laser') {
+    var k2 = stage >= 4 && Math.random() < 0.5 ? 3 : 2;
+    addObstacle({ type: 'beam', key: 'laser' + k2, k: k2, ha: LASER_HA, ang: a0, laser: true,
+      period: 110, onDur: 55, phase: Math.floor(rand(0, 110)), rot: stage >= 5 ? rand(-0.006, 0.006) : 0, z: SPAWN_Z });
+  } else if (kind === 'wall') {
+    var alive = [], holes = Math.random() < 0.5 ? 1 : 2, i;
+    for (i = 0; i < WALL_N; i++) alive.push(true);
+    var h0 = Math.floor(rand(0, WALL_N));
+    for (i = 0; i < holes; i++) alive[(h0 + i * Math.floor(WALL_N / 2)) % WALL_N] = false;
+    if (stage >= 3 && Math.random() < 0.3) alive[h0] = true; // 구멍 없음 → 쏴서 뚫어야 함
+    addObstacle({ type: 'wall', key: 'wall', ang: a0, alive: alive, hp: [2, 2, 2, 2, 2, 2, 2, 2, 2, 2], flash: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], z: SPAWN_Z });
+  } else if (kind === 'drone') {
+    var n = 2 + Math.floor(Math.random() * Math.min(3, stage));
+    for (var j = 0; j < n; j++) spawnDrone(a0 + j * 0.7, SPAWN_Z - j * 12);
+  } else if (kind === 'combo') {
+    addObstacle({ type: 'ring', key: 'ringW', gh: GH_W, ang: a0, rot: rand(-0.01, 0.01), z: SPAWN_Z });
+    spawnDrone(a0, SPAWN_Z - 30);
+  }
+  // 메시 연결
+  for (var q = 0; q < obstacles.length; q++) if (!obstacles[q].mesh) attachMesh(obstacles[q]);
+}
+function spawnDrone(a, z) {
+  addObstacle({ type: 'drone', key: 'drone', ang: a, z: z, hp: 2, phase: rand(0, TAU), flash: 0 });
+}
+function attachMesh(o) {
+  o.mesh = getMesh(o.key);
+  if (o.type === 'wall') {
+    var sl = o.mesh.userData.slots;
+    for (var i = 0; i < sl.length; i++) { sl[i].visible = o.alive[i]; sl[i].scale.set(1, 1, 1); }
+  }
+}
+
+// ---------- 판정 ----------
+// 여유 각(양수 = 안전, 음수 = 충돌)
+function clearance(o, a, half) {
+  var i, d, m = Infinity;
+  if (o.type === 'ring') return o.gh - Math.abs(angDiff(a, o.ang)) - half;
+  if (o.type === 'beam') {
+    if (o.laser && !laserOn(o)) return Infinity;
+    for (i = 0; i < o.k; i++) {
+      var ba = o.ang + i * Math.PI / o.k;
+      d = Math.min(Math.abs(angDiff(a, ba)), Math.abs(angDiff(a, ba + Math.PI)));
+      m = Math.min(m, d - o.ha - half);
+    }
+    return m;
+  }
+  if (o.type === 'wall') {
+    for (i = 0; i < WALL_N; i++) {
+      if (!o.alive[i]) continue;
+      d = Math.abs(angDiff(a, o.ang + i / WALL_N * TAU));
+      m = Math.min(m, d - SLOT_HA - half);
+    }
+    return m;
+  }
+  return Infinity;
+}
+function laserOn(o) { return ((t + o.phase) % o.period) < o.onDur; }
+function laserWarn(o) { var p = (t + o.phase) % o.period; return p > o.period - 18; }
+
+function worldPos(a, r, z, out) {
+  out.x = Math.sin(a) * r + bx(z); out.y = -Math.cos(a) * r + by(z); out.z = z; return out;
+}
+var tmpV = { x: 0, y: 0, z: 0 };
+
+function hurt() {
+  if (invuln > 0) return;
+  hp--; combo = 0;
+  invuln = 100; shake = 14; flash = 0.65;
+  sfx('hurt');
+  worldPos(ang, SHIP_R, 0, tmpV);
+  burst(tmpV.x, tmpV.y, tmpV.z - 1, 40, 0xff3060, 0.8);
+  popup('충돌!', 'bad');
+  if (hp <= 0) gameOver();
+}
+function onPass(o) {
+  if (invuln > 0) return;
+  var c = clearance(o, ang, SHIP_HA);
+  if (c === Infinity) {
+    if (o.type === 'beam' && o.laser) { combo++; score += 15 * mult(); }
+    return;
+  }
+  if (c < 0) { hurt(); return; }
+  combo++;
+  score += 20 * mult();
+  if (c < NEAR) {
+    combo++;
+    var b = 100 * mult();
+    score += b;
+    popup('니어 미스! +' + b);
+    sfx('near');
+    worldPos(ang, SHIP_R, -2, tmpV);
+    burst(tmpV.x, tmpV.y, tmpV.z, 14, 0xffffff, 0.5);
+  } else sfx('pass');
+  if (combo > 0 && combo % 10 === 0) popup('COMBO ' + combo + '!', 'big');
+}
+
+// ---------- 업데이트 (고정 60fps 스텝) ----------
+function update() {
+  gTime++;
+  curveX = 0.00038 * Math.sin(gTime * 0.0042);
+  curveY = 0.00028 * Math.sin(gTime * 0.0057 + 1.3);
+  lerpTheme(0.03);
+
+  var spd;
+  if (state === 'play') {
+    t++;
+    speed = Math.min(3.4, 1.1 + t * 0.00035);
+    var ns = 1 + Math.floor(t / 1800);
+    if (ns !== stage) {
+      stage = ns; setTheme(stage - 1);
+      popup('STAGE ' + stage, 'big'); sfx('stage');
+      hp = Math.min(3, hp + (stage % 2 === 1 ? 1 : 0));
+    }
+    // 이동
+    var dir = (keys.ArrowRight || keys.KeyD ? 1 : 0) - (keys.ArrowLeft || keys.KeyA ? 1 : 0);
+    if (dir !== 0 || !drag) { angVel += (dir * 0.068 - angVel) * 0.28; ang += angVel; }
+    else angVel *= 0.8; // 드래그 중에는 pointermove 가 직접 각도를 바꿈
+    ang = ((ang % TAU) + TAU) % TAU;
+    spd = speed;
+    score += speed * 0.25;
+    if (invuln > 0) invuln--;
+
+    // 자동 발사
+    if (--fireTimer <= 0) {
+      fireTimer = 7;
+      for (var i = 0; i < bullets.length; i++) {
+        if (!bullets[i].alive) { bullets[i].alive = true; bullets[i].ang = ang; bullets[i].z = -1.5; bullets[i].mesh.visible = true; break; }
+      }
+      sfx('shot');
+    }
+    // 스폰
+    if (--spawnTimer <= 0) {
+      spawnPattern();
+      spawnTimer = Math.max(30, 72 - stage * 6) + Math.floor(rand(0, 24));
+    }
+  } else if (state === 'over') {
+    overTimer++;
+    speed = Math.max(0.3, speed * 0.985);
+    spd = speed;
+  } else if (state === 'pause') {
+    spd = 0;
+  } else { // title (어트랙트 모드)
+    speed = 1.4; spd = speed;
+    ang += 0.004;
+  }
+
+  if (state !== 'pause') {
+    updateTunnel(spd);
+    updateStreaks(spd);
+    updateParticles(spd);
+    if (state === 'play' || state === 'over') stepObjects(spd);
+  }
+
+  if (shake > 0) shake *= 0.88;
+  if (shake < 0.05) shake = 0;
+  if (flash > 0) flash = Math.max(0, flash - 0.03);
+}
+
+function stepObjects(spd) {
+  var i, j, o;
+  // 총알
+  for (i = 0; i < bullets.length; i++) {
+    var b = bullets[i];
+    if (!b.alive) continue;
+    var bz0 = b.z;
+    b.z -= 6;
+    if (b.z < -235) { b.alive = false; b.mesh.visible = false; continue; }
+    for (j = 0; j < obstacles.length; j++) {
+      o = obstacles[j];
+      if (o.dead) continue;
+      // 상대 이동 구간 교차 검사
+      var rel0 = bz0 - o.z, rel1 = b.z - (o.z + spd);
+      if (!(rel1 <= 1.5 && rel0 >= -1.5)) continue;
+      if (o.type === 'drone') {
+        if (Math.abs(angDiff(b.ang, o.ang)) < 0.22) { hitDrone(o); b.alive = false; break; }
+      } else if (o.type === 'wall') {
+        var k = -1;
+        for (var s = 0; s < WALL_N; s++) {
+          if (o.alive[s] && Math.abs(angDiff(b.ang, o.ang + s / WALL_N * TAU)) < SLOT_HA) { k = s; break; }
+        }
+        if (k >= 0) { hitSlot(o, k); b.alive = false; break; }
+      } else if (o.type === 'ring') {
+        if (clearance(o, b.ang, 0) < 0) {
+          worldPos(b.ang, SHIP_R, o.z, tmpV);
+          burst(tmpV.x, tmpV.y, tmpV.z, 4, targetB.getHex(), 0.3);
+          b.alive = false; break;
+        }
+      }
+    }
+    if (!b.alive) { b.mesh.visible = false; continue; }
+    worldPos(b.ang, SHIP_R, b.z, b.mesh.position);
+  }
+
+  // 장애물
+  for (i = obstacles.length - 1; i >= 0; i--) {
+    o = obstacles[i];
+    var z0 = o.z;
+    if (o.type === 'drone') {
+      o.z += spd * 0.5;
+      o.phase += 0.05;
+      o.ang += Math.sin(o.phase) * 0.018;
+      if (o.z > -70 && state === 'play') o.ang += clamp(angDiff(ang, o.ang), -1, 1) * 0.012; // 살짝 추적
+      if (state === 'play' && Math.abs(o.z) < 1.6 && Math.abs(angDiff(ang, o.ang)) < 0.22 && invuln <= 0) {
+        hurt(); destroyDrone(o, false);
+      }
+    } else {
+      o.z += spd;
+      if (o.rot) o.ang += o.rot;
+      if (state === 'play' && z0 < 0 && o.z >= 0) onPass(o);
+    }
+    if (o.dead || o.z > 14) {
+      releaseMesh(o.key, o.mesh);
+      obstacles.splice(i, 1);
+      continue;
+    }
+    syncMesh(o);
+  }
+}
+function syncMesh(o) {
+  var m = o.mesh, z = o.z;
+  if (o.type === 'ring') {
+    m.position.set(bx(z), by(z), z); m.rotation.z = o.ang;
+  } else if (o.type === 'beam') {
+    m.position.set(bx(z), by(z), z); m.rotation.z = o.ang - Math.PI / 2;
+    if (o.laser) {
+      var on = laserOn(o), warn = !on && laserWarn(o);
+      var fl = warn ? (Math.floor(t / 3) % 2 ? 0.55 : 0.1) : (on ? 1 : 0.08);
+      m.userData.core.opacity = fl;
+      m.userData.halo.opacity = on ? 0.45 : fl * 0.25;
+    }
+  } else if (o.type === 'wall') {
+    m.position.set(bx(z), by(z), z); m.rotation.z = o.ang;
+    var sl = m.userData.slots;
+    for (var i = 0; i < WALL_N; i++) {
+      if (o.flash[i] > 0) { o.flash[i]--; var sc = 1 + o.flash[i] * 0.04; sl[i].scale.set(sc, sc, sc); }
+    }
+  } else if (o.type === 'drone') {
+    worldPos(o.ang, 7.6, z, m.position);
+    m.rotation.z = o.ang;
+    m.userData.core.rotation.x += 0.07; m.userData.core.rotation.y += 0.05;
+    m.userData.ring.rotation.z -= 0.08;
+    var dsc = o.flash > 0 ? 1.35 : 1;
+    if (o.flash > 0) o.flash--;
+    m.scale.set(dsc, dsc, dsc);
+  }
+}
+function hitDrone(o) {
+  o.hp--; o.flash = 5;
+  if (o.hp <= 0) destroyDrone(o, true);
+  else sfx('hit');
+}
+function destroyDrone(o, byPlayer) {
+  o.dead = true;
+  worldPos(o.ang, 7.6, o.z, tmpV);
+  burst(tmpV.x, tmpV.y, tmpV.z, 40, targetB.getHex(), 0.9);
+  burst(tmpV.x, tmpV.y, tmpV.z, 20, 0xffffff, 0.6);
+  sfx('boom');
+  if (byPlayer) {
+    combo++;
+    var p = 150 * mult();
+    score += p;
+    popup('드론 격추 +' + p);
+  }
+}
+function hitSlot(o, k) {
+  o.hp[k]--; o.flash[k] = 6;
+  if (o.hp[k] > 0) { sfx('hit'); return; }
+  o.alive[k] = false;
+  o.mesh.userData.slots[k].visible = false;
+  worldPos(o.ang + k / WALL_N * TAU, R - 1.5, o.z, tmpV);
+  burst(tmpV.x, tmpV.y, tmpV.z, 30, targetA.getHex(), 0.8);
+  sfx('boom');
+  score += 50 * mult();
+}
+
+// ---------- 렌더 ----------
+var lookTarget = new THREE.Vector3();
+function render() {
+  // 배 위치/자세
+  var invBlink = state === 'play' && invuln > 0 && Math.floor(invuln / 4) % 2 === 0;
+  if (state !== 'over') ship.visible = !invBlink;
+  ship.position.set(Math.sin(ang) * SHIP_R, -Math.cos(ang) * SHIP_R, 0);
+  ship.rotation.z = ang - clamp(angVel, -0.1, 0.1) * 5;
+  var es = 1 + Math.sin(gTime * 0.6) * 0.25 + speed * 0.15;
+  ship.userData.eng.scale.set(es, es, es * 1.6);
+
+  // 카메라: 배와 함께 회전 (배 쪽 벽이 항상 아래)
+  var rc = 5.4;
+  var sx = shake > 0 ? rand(-1, 1) * shake * 0.06 : 0, sy = shake > 0 ? rand(-1, 1) * shake * 0.06 : 0;
+  camera.position.set(Math.sin(ang) * rc + sx, -Math.cos(ang) * rc + sy, 7);
+  camera.up.set(-Math.sin(ang), Math.cos(ang), 0);
+  var lz = -38;
+  lookTarget.set(Math.sin(ang) * 6.8 + bx(lz) * 0.8, -Math.cos(ang) * 6.8 + by(lz) * 0.8, lz);
+  camera.lookAt(lookTarget);
+  var fov = baseFov() + (speed - 1) * 11;
+  if (Math.abs(camera.fov - fov) > 0.05) { camera.fov += (fov - camera.fov) * 0.1; camera.updateProjectionMatrix(); }
+
+  elFlash.style.opacity = flash.toFixed(3);
+  updateHud();
+  renderer.render(scene, camera);
+}
+
+// ---------- 루프 (60fps 고정 스텝) ----------
+titleScreen();
+var last = performance.now(), acc = 0;
+function loop(now) {
+  acc += Math.min(100, now - last); last = now;
+  while (acc >= 1000 / 60) { update(); acc -= 1000 / 60; }
+  render();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
