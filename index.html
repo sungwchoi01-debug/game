@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>비행 게임 모음</title>
+<style>
+  :root {
+    --bg: #05060f; --card: rgba(18, 26, 60, .72); --card-hi: rgba(32, 52, 120, .85);
+    --line: rgba(120, 170, 255, .25); --text: #e8f1ff; --muted: #9ab; --accent: #6cf;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; overflow-x: hidden; }
+  #stars { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; }
+  main { position: relative; z-index: 1; max-width: 1180px; margin: 0 auto; padding: 56px 16px 40px; }
+  header { text-align: center; margin-bottom: 40px; }
+  h1 { margin: 0; font-size: clamp(32px, 6vw, 56px); letter-spacing: .04em; color: var(--accent); text-shadow: 0 0 24px rgba(80,160,255,.5); }
+  header p { margin: 10px 0 0; color: var(--muted); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+  .card { position: relative; display: flex; flex-direction: column; gap: 10px; padding: 20px 18px; border-radius: 16px; background: var(--card); border: 1px solid var(--line); color: inherit; text-decoration: none; backdrop-filter: blur(6px); transition: transform .18s, background .18s, box-shadow .18s, border-color .18s; outline: none; }
+  .card.soon { opacity: .55; cursor: not-allowed; }
+  .card:hover, .card.sel { transform: translateY(-6px); background: var(--card-hi); border-color: var(--c); box-shadow: 0 10px 40px -10px var(--c); }
+  .icon { font-size: 40px; line-height: 1; }
+  .badge { position: absolute; top: 14px; right: 14px; font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 999px; background: var(--c); color: #071022; }
+  .card h2 { margin: 0; font-size: 19px; }
+  .card p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--muted); flex: 1; }
+  .hi { font-size: 12.5px; color: var(--c); font-weight: 700; }
+  footer { text-align: center; margin-top: 36px; color: var(--muted); font-size: 13px; }
+  .tip { margin: 28px auto 0; max-width: 460px; text-align: center; padding: 16px 18px; border-radius: 14px; border: 1px dashed var(--line); background: rgba(10, 16, 40, .6); }
+  .tip p { margin: 0; font-size: 14px; line-height: 1.6; color: var(--text); }
+  .tip .acct { margin-top: 6px; font-weight: 700; color: var(--accent); user-select: all; font-variant-numeric: tabular-nums; }
+  kbd { border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; font-size: 12px; }
+  @media (max-width: 520px) {
+    main { padding-top: 36px; }
+    .grid { grid-template-columns: 1fr; }
+    .card { flex-direction: row; flex-wrap: wrap; align-items: center; }
+    .card p { flex-basis: 100%; }
+    .icon { font-size: 32px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="stars"></canvas>
+<main>
+  <header>
+    <h1>SKY ARCADE</h1>
+    <p>비행 슈팅 게임 5종 — 골라서 출격하세요</p>
+  </header>
+  <nav class="grid" id="grid"></nav>
+  <footer><kbd>←</kbd> <kbd>→</kbd> 선택 · <kbd>Enter</kbd> 시작 · 3D 게임은 인터넷 연결이 필요해요</footer>
+  <aside class="tip">
+    <p>심심해서 만들었어요. 마음에 드셨다면 아래에 계좌번호로 입금해주세요.</p>
+    <p class="acct" id="acct">마음 보내실 곳 1111-111111111111</p>
+  </aside>
+</main>
+<script>
+(() => {
+'use strict';
+const GAMES = [
+  { file: 'sky-striker',   key: 'hi_sky',      icon: '✈️', name: '스카이 스트라이커', tag: '2D', color: '#6cf',
+    desc: '클래식 종스크롤 탄막 슈팅. 파워업을 모으고 스테이지 보스를 격파하세요.' },
+  { file: 'canyon-run',    key: 'hi_canyon',   icon: '🏜️', name: '협곡 레일 슈터',   tag: '3D', color: '#ffb84d',
+    desc: '좁은 협곡을 고속으로 돌파하며 적 편대와 포탑을 격추하는 3인칭 레일 슈터.' },
+  { file: 'dogfight',      key: 'hi_dogfight', icon: '🚀', name: '우주 도그파이트', tag: '3D', color: '#b98cff',
+    desc: '소행성 지대에서 자유롭게 비행하며 적 전투기와 모선을 상대하는 공중전.' },
+  { file: 'neon-tunnel',   key: 'hi_tunnel',   icon: '🌀', name: '네온 터널 러너', tag: '3D', color: '#ff4dd2',
+    desc: '회전하는 네온 튜브 속을 질주. 점점 빨라지는 장애물을 아슬아슬하게 피하세요.' },
+  { file: 'island-strike', key: 'hi_island',   icon: '🏝️', name: '섬 폭격 작전',     tag: '3D', color: '#4dd8c9',
+    desc: '바다와 섬 위를 날며 기관포로 공중 적을, 폭탄으로 지상 포대와 전함을 부수세요.' },
+];
+function hi(key) { try { return +localStorage.getItem(key) || 0; } catch (e) { return 0; } }
+
+const grid = document.getElementById('grid');
+const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// 아직 만들어지지 않은 게임은 '제작 중'으로 표시
+const READY = new Set(GAMES.map(g => g.file));
+grid.innerHTML = GAMES.map((g, i) => `
+  <a class="card${READY.has(g.file) ? '' : ' soon'}" href="${READY.has(g.file) ? `games/${g.file}.html` : '#'}" data-i="${i}" style="--c:${g.color}">
+    <span class="badge">${g.tag}</span>
+    <span class="icon">${g.icon}</span>
+    <h2>${esc(g.name)}</h2>
+    <p>${esc(g.desc)}</p>
+    <span class="hi">${READY.has(g.file) ? '최고 점수 ' + hi(g.key).toLocaleString() : '🛠 제작 중'}</span>
+  </a>`).join('');
+
+const cards = [...grid.children];
+cards.forEach(c => { if (c.classList.contains('soon')) c.addEventListener('click', e => e.preventDefault()); });
+let sel = 0;
+function select(i) {
+  sel = (i + cards.length) % cards.length;
+  cards.forEach((c, j) => c.classList.toggle('sel', j === sel));
+  cards[sel].focus({ preventScroll: false });
+}
+cards.forEach((c, i) => c.addEventListener('mouseenter', () => { sel = i; cards.forEach((d, j) => d.classList.toggle('sel', j === i)); }));
+addEventListener('keydown', e => {
+  if (e.code === 'ArrowRight' || e.code === 'ArrowDown') { select(sel + 1); e.preventDefault(); }
+  if (e.code === 'ArrowLeft' || e.code === 'ArrowUp') { select(sel - 1); e.preventDefault(); }
+  if (e.code === 'Enter' || e.code === 'Space') { e.preventDefault(); cards[sel].click(); }
+});
+cards[0].classList.add('sel');
+
+// 흐르는 별 배경
+const cv = document.getElementById('stars'), ctx = cv.getContext('2d');
+let W, H, stars;
+function resize() {
+  W = cv.width = innerWidth; H = cv.height = innerHeight;
+  stars = Array.from({ length: Math.round(W * H / 6000) }, () => ({ x: Math.random() * W, y: Math.random() * H, z: Math.random() * 1.5 + .2 }));
+}
+addEventListener('resize', resize); resize();
+(function tick() {
+  ctx.fillStyle = '#05060f'; ctx.fillRect(0, 0, W, H);
+  for (const s of stars) {
+    s.y += s.z * 1.6; if (s.y > H) { s.y = 0; s.x = Math.random() * W; }
+    ctx.fillStyle = `rgba(200,220,255,${s.z / 1.7})`;
+    ctx.fillRect(s.x, s.y, s.z * 1.4, s.z * 3);
+  }
+  requestAnimationFrame(tick);
+})();
+})();
+</script>
+</body>
+</html>
